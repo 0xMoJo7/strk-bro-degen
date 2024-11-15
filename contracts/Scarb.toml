@@ -1,0 +1,12 @@
+[package]
+name = "brother_betting"
+version = "0.1.0"
+edition = "2023_01"
+
+[dependencies]
+starknet = ">=2.3.1"
+alexandria_math = { git = "https://github.com/keep-starknet-strange/alexandria.git" }
+
+[[target.starknet-contract]]
+sierra = true
+casm = true
