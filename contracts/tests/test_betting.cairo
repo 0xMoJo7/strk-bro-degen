@@ -28,20 +28,58 @@ mod tests {
         BetsSummary
     };
 
-    // Constants
-    const INITIAL_SUPPLY: felt252 = 1000000000000000000000; // 1000 tokens
+    use openzeppelin_token::erc20::{ERC20Component, ERC20HooksEmptyImpl};
+
+    const INITIAL_SUPPLY: u256 = 1000000000000000000000; // 1000 tokens with 18 decimals
     const CANCEL_DELAY: u64 = 86400_u64; // 24 hours in seconds
     const BET_AMOUNT: felt252 = 100000000000000000000; // 100 tokens
 
+    #[starknet::contract]
+    mod ERC20 {
+        use openzeppelin_token::erc20::{ERC20Component, ERC20HooksEmptyImpl};
+        use starknet::ContractAddress;
+
+        component!(path: ERC20Component, storage: erc20, event: ERC20Event);
+
+        #[abi(embed_v0)]
+        impl ERC20Impl = ERC20Component::ERC20Impl<ContractState>;
+        #[abi(embed_v0)]
+        impl ERC20MetadataImpl = ERC20Component::ERC20MetadataImpl<ContractState>;
+        impl InternalImpl = ERC20Component::InternalImpl<ContractState>;
+
+        #[storage]
+        struct Storage {
+            #[substorage(v0)]
+            erc20: ERC20Component::Storage
+        }
+
+        #[event]
+        #[derive(Drop, starknet::Event)]
+        enum Event {
+            #[flat]
+            ERC20Event: ERC20Component::Event
+        }
+
+        #[constructor]
+        fn constructor(
+            ref self: ContractState,
+            initial_supply: u256,
+            recipient: ContractAddress
+        ) {
+            let name = "MyToken";
+            let symbol = "MTK";
+    
+            self.erc20.initializer(name, symbol);
+            self.erc20.mint(recipient, initial_supply);
+        }
+    }
+
     fn deploy_token() -> (ContractAddress, IERC20Dispatcher) {
         let contract = declare("ERC20").unwrap().contract_class();
-        let mut constructor_calldata = array![];
-        constructor_calldata.append('Test Token');
-        constructor_calldata.append('TST');
-        constructor_calldata.append(18);
-        constructor_calldata.append(INITIAL_SUPPLY);
+        let recipient = starknet::get_caller_address();
+        let constructor_calldata = array![INITIAL_SUPPLY, recipient.into()];
         
-        let (addr, _data) = contract
+        let (addr, _) = contract
             .deploy(@constructor_calldata)
             .unwrap();
         let dispatcher = IERC20Dispatcher { contract_address: addr };
@@ -50,7 +88,7 @@ mod tests {
     }
 
     fn deploy_betting_game(token: ContractAddress) -> (ContractAddress, IBettingGameDispatcher) {
-        let contract = declare("BettingGame").unwrap().contract_class();
+        let contract = declare("brother_betting::BettingGame").unwrap().contract_class();
         let constructor_calldata = array![token.into()];
         
         let (addr, _data) = contract

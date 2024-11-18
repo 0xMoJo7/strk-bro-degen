@@ -3,7 +3,10 @@ name = "brother_betting"
 version = "0.1.0"
 
 [dependencies]
-starknet = ">=2.7.0"
+starknet = "2.3.1"
+openzeppelin_token = "0.19.0"
+
+[tool.snforge]
 
 [[target.starknet-contract]]
 sierra = true
@@ -15,5 +18,3 @@ test = "snforge test"
 [dev-dependencies]
 snforge_std = { git = "https://github.com/foundry-rs/starknet-foundry.git", tag = "v0.33.0" }
 assert_macros = "2.8.4"
-
-[tool.snforge]

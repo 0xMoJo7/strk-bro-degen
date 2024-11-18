@@ -4,6 +4,7 @@ use interfaces::{
     Bet,
     BetsSummary,
     IBettingGame,
+    IERC20,
     IERC20Dispatcher,
     IERC20DispatcherTrait
 };
@@ -14,6 +15,7 @@ mod BettingGame {
         Bet,
         BetsSummary,
         IBettingGame,
+        IERC20,
         IERC20Dispatcher,
         IERC20DispatcherTrait,
     };
