@@ -1,62 +1,42 @@
-mod interfaces {
-    use starknet::ContractAddress;
-    use array::Array;
+mod interfaces;
 
-    #[derive(Drop, Clone, Serde, starknet::Store)]
-    struct Bet {
-        proposer: ContractAddress,
-        responder: ContractAddress,
-        proposer_amount: u256,
-        responder_amount: u256,
-        odds: u32,
-        created_timestamp: u64,
-        winner: ContractAddress,
-    }
-
-    #[derive(Drop, Clone, Serde, starknet::Store)]
-    struct BetsSummary {
-        odds: u32,
-        count: u32,
-        total_amount: u256,
-    }
-
-    #[starknet::interface]
-    trait IBettingGame<TContractState> {
-        fn create_bet(ref self: TContractState, odds: u32, amount: u256) -> u32;
-        fn match_bet(ref self: TContractState, bet_id: u32, amount: u256);
-        fn cancel_bet(ref self: TContractState, bet_id: u32);
-        fn get_bets_by_odds(self: @TContractState, odds: u32) -> Array<Bet>;
-        fn get_active_bets_summary(self: @TContractState) -> Array<BetsSummary>;
-        fn get_user_active_bets(self: @TContractState, user: ContractAddress) -> Array<(u32, Bet)>;
-        fn get_user_bet_history(self: @TContractState, user: ContractAddress) -> Array<(u32, Bet)>;
-        fn is_bet_cancellable(self: @TContractState, bet_id: u32) -> bool;
-        fn get_bet(self: @TContractState, bet_id: u32) -> (Bet, bool);
-        fn get_total_fees(self: @TContractState) -> u256;
-        fn get_token_address(self: @TContractState) -> ContractAddress;
-    }
-
-    #[starknet::interface]
-    trait IERC20<TContractState> {
-        fn transfer(ref self: TContractState, recipient: ContractAddress, amount: u256) -> bool;
-        fn transfer_from(
-            ref self: TContractState,
-            sender: ContractAddress,
-            recipient: ContractAddress,
-            amount: u256
-        ) -> bool;
-    }
-}
-
-use starknet::{ContractAddress, get_caller_address, get_block_timestamp, get_contract_address};
-use array::ArrayTrait;
-use traits::Into;
-use traits::TryInto;
-use zeroable::Zeroable;
-use interfaces::{Bet, BetsSummary, IBettingGame, IERC20Dispatcher, IERC20DispatcherTrait};
+use interfaces::{
+    Bet,
+    BetsSummary,
+    IBettingGame,
+    IERC20Dispatcher,
+    IERC20DispatcherTrait
+};
 
 #[starknet::contract]
 mod BettingGame {
-    use super::*;
+    use super::{
+        Bet,
+        BetsSummary,
+        IBettingGame,
+        IERC20Dispatcher,
+        IERC20DispatcherTrait,
+    };
+    
+    use starknet::{
+        ContractAddress, 
+        get_caller_address,
+        get_block_timestamp,
+        get_contract_address,
+        SyscallResultTrait,
+        storage_access::Store,
+        storage_access::StorageAddress,
+        storage::StorageBaseAddress,
+        storage::{
+            StoragePointerReadAccess, StoragePointerWriteAccess, StoragePathEntry, Map
+        }
+    };
+    use array::ArrayTrait;
+    use option::OptionTrait;
+    use traits::{Into, TryInto};
+    use zeroable::Zeroable;
+    use hash::HashStateExTrait;
+    use box::BoxTrait;
 
     const CANCEL_DELAY: u64 = 86400; // 24 hours in seconds
     const FEE_PERCENTAGE: u8 = 1; // 1% fee
@@ -70,15 +50,7 @@ mod BettingGame {
         fee_collected: u256,
     }
 
-    #[event]
-    #[derive(Drop, starknet::Event)]
-    enum Event {
-        BetCreated: BetCreated,
-        BetMatched: BetMatched,
-        BetCancelled: BetCancelled,
-    }
-
-    #[derive(Drop, starknet::Event)]
+    #[derive(Copy, Drop, starknet::Event)]
     struct BetCreated {
         #[key]
         bet_id: u32,
@@ -88,7 +60,7 @@ mod BettingGame {
         timestamp: u64
     }
 
-    #[derive(Drop, starknet::Event)]
+    #[derive(Copy, Drop, starknet::Event)]
     struct BetMatched {
         #[key]
         bet_id: u32,
@@ -97,7 +69,7 @@ mod BettingGame {
         winner: ContractAddress
     }
 
-    #[derive(Drop, starknet::Event)]
+    #[derive(Copy, Drop, starknet::Event)]
     struct BetCancelled {
         #[key]
         bet_id: u32,
@@ -105,25 +77,19 @@ mod BettingGame {
         amount: u256
     }
 
+    #[event]
+    #[derive(Copy, Drop, starknet::Event)]
+    enum Event {
+        BetCreated: BetCreated,
+        BetMatched: BetMatched,
+        BetCancelled: BetCancelled,
+    }
+
     #[constructor]
     fn constructor(ref self: ContractState, token_address: ContractAddress) {
         self.token_address.write(token_address);
         self.next_bet_id.write(1_u32);
         self.fee_collected.write(0_u256);
-    }
-
-    #[generate_trait]
-    impl InternalFunctions of InternalFunctionsTrait {
-        fn validate_odds(odds: u32) -> bool {
-            match odds {
-                1_u32 | 2_u32 | 3_u32 | 5_u32 | 10_u32 | 100_u32 | 1000_u32 => true,
-                _ => false
-            }
-        }
-
-        fn calculate_fee(amount: u256) -> u256 {
-            (amount * FEE_PERCENTAGE.into()) / 100_u256
-        }
     }
 
     #[abi(embed_v0)]
@@ -372,6 +338,28 @@ mod BettingGame {
 
         fn get_token_address(self: @ContractState) -> ContractAddress {
             self.token_address.read()
+        }
+    }
+
+    #[generate_trait]
+    impl InternalFunctions of InternalFunctionsTrait {
+        fn validate_odds(odds: u32) -> bool {
+            let valid_odds = array![1_u32, 2_u32, 3_u32, 5_u32, 10_u32, 100_u32, 1000_u32];
+            let mut i = 0_u32;
+            
+            loop {
+                if i >= valid_odds.len() {
+                    break false;
+                }
+                if *valid_odds.at(i.try_into().unwrap()) == odds {
+                    break true;
+                }
+                i += 1_u32;
+            }
+        }
+
+        fn calculate_fee(amount: u256) -> u256 {
+            (amount * FEE_PERCENTAGE.into()) / 100_u256
         }
     }
 }

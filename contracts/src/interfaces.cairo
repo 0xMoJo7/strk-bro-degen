@@ -1,7 +1,7 @@
 use starknet::ContractAddress;
 use array::Array;
 
-#[derive(Drop, Clone, Copy, Serde, starknet::Store, Hash)]
+#[derive(Copy, Drop, Hash, starknet::Store, Serde)]
 struct Bet {
     proposer: ContractAddress,
     responder: ContractAddress,
@@ -12,7 +12,7 @@ struct Bet {
     winner: ContractAddress,
 }
 
-#[derive(Drop, Clone, Copy, Serde, starknet::Store, Hash)]
+#[derive(Copy, Drop, Hash, starknet::Store, Serde)]
 struct BetsSummary {
     odds: u32,
     count: u32,
