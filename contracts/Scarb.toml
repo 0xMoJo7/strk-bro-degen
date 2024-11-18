@@ -13,7 +13,7 @@ casm = true
 test = "snforge test"
 
 [dev-dependencies]
-snforge_std = { git = "https://github.com/foundry-rs/starknet-foundry.git", tag = "v0.31.0" }
+snforge_std = { git = "https://github.com/foundry-rs/starknet-foundry.git", tag = "v0.33.0" }
 assert_macros = "2.8.4"
 
 [tool.snforge]

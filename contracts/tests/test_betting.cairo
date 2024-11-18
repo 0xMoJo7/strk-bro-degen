@@ -9,10 +9,12 @@ mod tests {
     };
     use snforge_std::{
         declare,
+        DeclareResultTrait,
+        ContractClassTrait,
+        ContractClass,
         start_cheat_caller_address,
         stop_cheat_caller_address,
         start_mock_call,
-        ContractClassTrait,
     };
 
     use brother_betting::interfaces::{
@@ -39,20 +41,24 @@ mod tests {
         constructor_calldata.append(18);
         constructor_calldata.append(INITIAL_SUPPLY);
         
-        let (contract_address, _) = contract.deploy(@constructor_calldata).unwrap();
-        let dispatcher = IERC20Dispatcher { contract_address };
+        let (addr, _data) = contract
+            .deploy(@constructor_calldata)
+            .unwrap();
+        let dispatcher = IERC20Dispatcher { contract_address: addr };
         
-        (contract_address, dispatcher)
+        (addr, dispatcher)
     }
 
     fn deploy_betting_game(token: ContractAddress) -> (ContractAddress, IBettingGameDispatcher) {
         let contract = declare("BettingGame").unwrap().contract_class();
         let constructor_calldata = array![token.into()];
         
-        let (contract_address, _) = contract.deploy(@constructor_calldata).unwrap();
-        let dispatcher = IBettingGameDispatcher { contract_address };
+        let (addr, _data) = contract
+            .deploy(@constructor_calldata)
+            .unwrap();
+        let dispatcher = IBettingGameDispatcher { contract_address: addr };
         
-        (contract_address, dispatcher)
+        (addr, dispatcher)
     }
 
     fn setup() -> (ContractAddress, ContractAddress, IBettingGameDispatcher, IERC20Dispatcher) {
