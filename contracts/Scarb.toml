@@ -2,15 +2,15 @@
 name = "brother_betting"
 version = "0.1.0"
 
-[dependencies]
-starknet = "2.3.1"
-openzeppelin_token = "0.19.0"
-
-[tool.snforge]
-
 [[target.starknet-contract]]
 sierra = true
 casm = true
+
+[dependencies]
+starknet = "2.3.1"
+
+[tool.snforge]
+exit_first = true
 
 [scripts]
 test = "snforge test"

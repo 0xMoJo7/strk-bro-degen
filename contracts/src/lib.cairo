@@ -10,7 +10,7 @@ use interfaces::{
 };
 
 #[starknet::contract]
-mod BettingGame {
+pub mod BettingGame {
     use super::{
         Bet,
         BetsSummary,
