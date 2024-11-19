@@ -143,7 +143,7 @@ pub mod BettingGame {
             bet_id: u32,
             amount: u256,
         ) {
-            let bet = self.bet_details.read(bet_id);
+            let mut bet = self.bet_details.read(bet_id);
             let is_active = self.bet_status.read(bet_id);
             
             assert(is_active, 'Bet is not active');
@@ -163,6 +163,11 @@ pub mod BettingGame {
             let total_pot = amount + bet.proposer_amount;
             let fee = InternalFunctions::calculate_fee(total_pot);
             let winning_amount = total_pot - fee;
+
+            bet.responder = caller;
+            bet.responder_amount = amount;
+            bet.winner = winner;
+            self.bet_details.write(bet_id, bet);
 
             let current_fees = self.fee_collected.read();
             self.fee_collected.write(current_fees + fee);
