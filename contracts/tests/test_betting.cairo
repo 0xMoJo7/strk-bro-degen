@@ -101,6 +101,7 @@ mod tests {
         start_cheat_caller_address,
         stop_cheat_caller_address,
         start_mock_call,
+        stop_mock_call,
         start_cheat_block_timestamp,
         stop_cheat_block_timestamp,
     };
@@ -244,9 +245,20 @@ mod tests {
 
     #[test]
     fn test_cancel_bet() {
-        let (token_address, _, betting_game, _) = setup();
+        let (token_address, _, betting_game, token) = setup();
         let proposer = contract_address_const::<1>();
         let bet_amount: u256 = BET_AMOUNT.try_into().unwrap();
+
+        // Mock initial balance and store it
+        let mut mock_balance: Array<felt252> = ArrayTrait::new();
+        mock_balance.append(bet_amount.low.into());
+        mock_balance.append(bet_amount.high.into());
+        start_mock_call(
+            token_address,
+            selector!("balance_of"),
+            mock_balance.span()
+        );
+        let initial_balance = token.balance_of(proposer);
 
         // Create bet
         start_cheat_caller_address(betting_game.contract_address, proposer);
@@ -256,11 +268,11 @@ mod tests {
             array![true]
         );
 
-        // Set initial timestamp
+        // Set timestamps and create bet
         start_cheat_block_timestamp(betting_game.contract_address, 0);
         let bet_id = betting_game.create_bet(2_u32, bet_amount);
 
-        // Set future timestamp and mock refund
+        // Cancel bet after delay
         start_cheat_block_timestamp(betting_game.contract_address, CANCEL_DELAY + 1);
         start_mock_call(
             token_address,
@@ -268,14 +280,37 @@ mod tests {
             array![true]
         );
 
-        // Cancel bet
         betting_game.cancel_bet(bet_id);
 
-        // Verify cancellation
+        // Verify bet is inactive
         let (_, is_active) = betting_game.get_bet(bet_id);
         assert(!is_active, 'Bet should be inactive');
 
+        // Mock final balance and check it
+        let mut final_balance_mock: Array<felt252> = ArrayTrait::new();
+        final_balance_mock.append(bet_amount.low.into());
+        final_balance_mock.append(bet_amount.high.into());
+        start_mock_call(
+            token_address,
+            selector!("balance_of"),
+            final_balance_mock.span()
+        );
+
+        // Get actual balance using token dispatcher
+        let final_balance = token.balance_of(proposer);
+        
+        // Verify final balance is within 2% of initial balance
+        let margin = (initial_balance * 2_u256) / 100_u256;  // 2% margin
+        let min_balance = initial_balance - margin;
+        let max_balance = initial_balance + margin;
+
+        assert(final_balance >= min_balance, 'Balance too low');
+        assert(final_balance <= max_balance, 'Balance too high');
+
         // Cleanup
+        stop_mock_call(token_address, selector!("balance_of"));
+        stop_mock_call(token_address, selector!("transfer_from"));
+        stop_mock_call(token_address, selector!("transfer"));
         stop_cheat_caller_address(betting_game.contract_address);
         stop_cheat_block_timestamp(betting_game.contract_address);
     }
