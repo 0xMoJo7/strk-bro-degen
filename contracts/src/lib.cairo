@@ -160,20 +160,27 @@ pub mod BettingGame {
             let random = timestamp % bet.odds.into();
             let winner = if random == 0_u64 { bet.proposer } else { caller };
 
-            let total_pot = amount + bet.proposer_amount;
-            let fee = InternalFunctions::calculate_fee(total_pot);
-            let winning_amount = total_pot - fee;
+            let total_pot = bet.proposer_amount + amount;
+            let winner_amount = if random == 0_u64 {
+                total_pot
+            } else {
+                let winnings = bet.proposer_amount * (bet.odds - 1_u32).into() / bet.odds.into();
+                amount + winnings
+            };
 
+            let fee = InternalFunctions::calculate_fee(winner_amount);
+            let final_amount = winner_amount - fee;
+
+            token.transfer(winner, final_amount);
+            
             bet.responder = caller;
             bet.responder_amount = amount;
             bet.winner = winner;
             self.bet_details.write(bet_id, bet);
+            self.bet_status.write(bet_id, false);
 
             let current_fees = self.fee_collected.read();
             self.fee_collected.write(current_fees + fee);
-
-            token.transfer(winner, winning_amount);
-            self.bet_status.write(bet_id, false);
 
             self.emit(Event::BetMatched(BetMatched { 
                 bet_id, 

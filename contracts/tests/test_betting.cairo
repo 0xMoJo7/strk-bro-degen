@@ -244,6 +244,39 @@ mod tests {
     }
 
     #[test]
+    fn test_get_bets_by_odds() {
+        let (token_address, _, betting_game, _) = setup();
+        let proposer = contract_address_const::<1>();
+        let bet_amount: u256 = BET_AMOUNT.try_into().unwrap();
+    
+        // Set caller address for creating bets
+        start_cheat_caller_address(betting_game.contract_address, proposer);
+        start_mock_call(
+            token_address,
+            selector!("transfer_from"),
+            array![true]
+        );
+    
+        // Create multiple bets with different odds
+        betting_game.create_bet(2_u32, bet_amount);  // First bet with odds 2
+        betting_game.create_bet(2_u32, bet_amount);  // Second bet with odds 2
+        betting_game.create_bet(3_u32, bet_amount);  // Third bet with odds 3
+    
+        // Get all bets with odds of 2
+        let bets = betting_game.get_bets_by_odds(2_u32);
+        
+        // Verify we got exactly 2 bets back
+        assert(bets.len() == 2_u32, 'Wrong number of bets');
+    
+        // Verify bets with odds 3
+        let bets_odds_3 = betting_game.get_bets_by_odds(3_u32);
+        assert(bets_odds_3.len() == 1_u32, 'Wrong number of odds 3 bets');
+    
+        // Clean up
+        stop_cheat_caller_address(betting_game.contract_address);
+    }
+
+    #[test]
     fn test_cancel_bet() {
         let (token_address, _, betting_game, token) = setup();
         let proposer = contract_address_const::<1>();
@@ -334,35 +367,104 @@ mod tests {
     }
 
     #[test]
-    fn test_get_bets_by_odds() {
+    fn test_match_bet_resolution_and_balances() {
+        // Setup with explicit values
+        let (token_address, _, betting_game, token) = setup();
+        let proposer = contract_address_const::<1>();
+        let responder = contract_address_const::<2>();
+        let bet_amount: u256 = 1000000000000000000_u256; // 1 ETH
+        let odds: u32 = 2_u32;
+
+        // Mock token operations
+        start_mock_call(token_address, selector!("transfer_from"), array![true]);
+        start_mock_call(token_address, selector!("transfer"), array![true]);
+
+        // Create bet as proposer
+        start_cheat_caller_address(betting_game.contract_address, proposer);
+        let bet_id = betting_game.create_bet(odds, bet_amount);
+
+        // Match bet as responder with timestamp that makes responder win
+        start_cheat_block_timestamp(betting_game.contract_address, 3_u64); // timestamp % 2 = 1, responder wins
+        start_cheat_caller_address(betting_game.contract_address, responder);
+        betting_game.match_bet(bet_id, bet_amount);
+
+        // Verify bet outcome
+        let (bet_details, is_active) = betting_game.get_bet(bet_id);
+        assert(!is_active, 'Bet should be inactive');
+        assert(bet_details.winner == responder, 'Wrong winner');
+
+        // Calculate expected payout for responder win
+        let winnings = bet_amount * (odds - 1_u32).into() / odds.into();
+        let total_payout = bet_amount + winnings;
+        let fee = total_payout / 100_u256; // 1% fee
+        let expected_payout = total_payout - fee;
+
+        // Verify fee collection
+        let collected_fees = betting_game.get_total_fees();
+        assert(collected_fees == fee, 'Incorrect fee collection');
+
+        // Cleanup
+        stop_mock_call(token_address, selector!("transfer_from"));
+        stop_mock_call(token_address, selector!("transfer"));
+        stop_cheat_caller_address(betting_game.contract_address);
+        stop_cheat_block_timestamp(betting_game.contract_address);
+    }
+
+    #[test]
+    fn test_match_bet_proposer_wins() {
         let (token_address, _, betting_game, _) = setup();
         let proposer = contract_address_const::<1>();
+        let responder = contract_address_const::<2>();
         let bet_amount: u256 = BET_AMOUNT.try_into().unwrap();
-    
-        // Set caller address for creating bets
+
+        // Mock initial balances for both participants
+        let mut initial_balance: Array<felt252> = ArrayTrait::new();
+        initial_balance.append((bet_amount * 2_u256).low.into());
+        initial_balance.append((bet_amount * 2_u256).high.into());
+        start_mock_call(token_address, selector!("balance_of"), initial_balance.span());
+
+        // Create bet
         start_cheat_caller_address(betting_game.contract_address, proposer);
-        start_mock_call(
-            token_address,
-            selector!("transfer_from"),
-            array![true]
-        );
-    
-        // Create multiple bets with different odds
-        betting_game.create_bet(2_u32, bet_amount);  // First bet with odds 2
-        betting_game.create_bet(2_u32, bet_amount);  // Second bet with odds 2
-        betting_game.create_bet(3_u32, bet_amount);  // Third bet with odds 3
-    
-        // Get all bets with odds of 2
-        let bets = betting_game.get_bets_by_odds(2_u32);
-        
-        // Verify we got exactly 2 bets back
-        assert(bets.len() == 2_u32, 'Wrong number of bets');
-    
-        // Verify bets with odds 3
-        let bets_odds_3 = betting_game.get_bets_by_odds(3_u32);
-        assert(bets_odds_3.len() == 1_u32, 'Wrong number of odds 3 bets');
-    
-        // Clean up
-        stop_cheat_caller_address(betting_game.contract_address);
+        start_mock_call(token_address, selector!("transfer_from"), array![true]);
+        let bet_id = betting_game.create_bet(2_u32, bet_amount);
+
+        // Match bet with timestamp that makes proposer win (timestamp % odds = 0)
+        start_cheat_caller_address(betting_game.contract_address, responder);
+        start_cheat_block_timestamp(betting_game.contract_address, 4); // Using 4 with odds of 2 forces proposer win
+        start_mock_call(token_address, selector!("transfer"), array![true]);
+        betting_game.match_bet(bet_id, bet_amount);
+
+        // Verify winner
+        let (bet_details, _) = betting_game.get_bet(bet_id);
+        assert(bet_details.winner == proposer, 'Proposer should win');
+    }
+
+    #[test]
+    fn test_match_bet_responder_wins() {
+        let (token_address, _, betting_game, token) = setup();
+        let proposer = contract_address_const::<1>();
+        let responder = contract_address_const::<2>();
+        let bet_amount: u256 = BET_AMOUNT.try_into().unwrap();
+
+        // Mock initial balances for both participants
+        let mut initial_balance: Array<felt252> = ArrayTrait::new();
+        initial_balance.append((bet_amount * 2_u256).low.into());
+        initial_balance.append((bet_amount * 2_u256).high.into());
+        start_mock_call(token_address, selector!("balance_of"), initial_balance.span());
+
+        // Create bet
+        start_cheat_caller_address(betting_game.contract_address, proposer);
+        start_mock_call(token_address, selector!("transfer_from"), array![true]);
+        let bet_id = betting_game.create_bet(2_u32, bet_amount);
+
+        // Match bet with timestamp that makes responder win (timestamp % odds = 1)
+        start_cheat_caller_address(betting_game.contract_address, responder);
+        start_cheat_block_timestamp(betting_game.contract_address, 3); // Using 3 with odds of 2 forces responder win
+        start_mock_call(token_address, selector!("transfer"), array![true]);
+        betting_game.match_bet(bet_id, bet_amount);
+
+        // Verify winner
+        let (bet_details, _) = betting_game.get_bet(bet_id);
+        assert(bet_details.winner == responder, 'Responder should win');
     }
 }
